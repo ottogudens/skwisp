@@ -10,3 +10,4 @@ python-dateutil>=2.9
 django-cors-headers>=4.4
 gunicorn>=22.0
 django-filter>=24.2
+django-ratelimit>=4.1

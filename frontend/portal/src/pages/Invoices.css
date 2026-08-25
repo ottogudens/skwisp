@@ -1,0 +1,16 @@
+/* Invoices */
+.invoice-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.invoice-card { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.invoice-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.invoice-period { font-size: var(--text-sm); color: var(--color-text-secondary); text-transform: capitalize; }
+.invoice-amount { font-size: var(--text-2xl); font-weight: 700; margin-top: var(--sp-1); }
+
+.invoice-card-meta { }
+.invoice-meta-item { font-size: var(--text-sm); color: var(--color-text-secondary); }

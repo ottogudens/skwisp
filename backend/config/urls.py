@@ -24,4 +24,5 @@ urlpatterns = [
     path('api/auth/', include('apps.authentication.urls')),
     path('api/dashboard/', include('apps.dashboard.urls')),
     path('api/payments/webhook/', mercadopago_webhook, name='mp-webhook'),
+    path('api/portal/', include('apps.portal.urls', namespace='portal')),
 ]

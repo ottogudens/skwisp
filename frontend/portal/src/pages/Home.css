@@ -1,0 +1,57 @@
+/* Home Page */
+.home-page { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+.home-greeting { padding: var(--sp-2) 0 var(--sp-1); }
+.home-name { font-size: var(--text-2xl); font-weight: 700; margin-bottom: var(--sp-1); }
+.home-plan { font-size: var(--text-sm); color: var(--color-text-secondary); }
+.home-plan strong { color: var(--color-text-primary); }
+
+/* Status card */
+.status-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  border-radius: var(--r-lg);
+  border: 1px solid;
+}
+.status-card--active    { background: rgba(34,197,94,0.08);  border-color: rgba(34,197,94,0.25); }
+.status-card--suspended { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.25); }
+.status-card--cancelled { background: rgba(239,68,68,0.08);  border-color: rgba(239,68,68,0.25); }
+.status-card--pending   { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.25); }
+
+.status-card-icon { font-size: 2rem; line-height: 1; }
+.status-card-label { font-size: var(--text-xs); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+.status-card-value { font-size: var(--text-xl); font-weight: 700; margin-top: 2px; }
+
+/* PPPoE */
+.home-pppoe-card { display: flex; flex-direction: column; gap: var(--sp-2); }
+.home-pppoe-user { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-md); }
+.home-pppoe-icon { font-size: 1.25rem; }
+.home-pppoe-user code {
+  background: var(--color-bg-elevated);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-sm);
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+}
+
+/* CTA cards */
+.home-cta-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-decoration: none;
+  color: inherit;
+  transition: background var(--t-fast), border-color var(--t-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+.home-cta-card:hover { background: var(--color-bg-elevated); border-color: var(--color-accent); }
+.home-cta-card:active { transform: scale(0.99); }
+
+.home-cta-content { display: flex; align-items: center; gap: var(--sp-4); }
+.home-cta-icon { font-size: 1.75rem; line-height: 1; }
+.home-cta-title { font-size: var(--text-md); font-weight: 600; margin-bottom: 2px; }
+.home-cta-desc  { font-size: var(--text-sm); color: var(--color-text-secondary); }
+.home-cta-arrow { font-size: 1.25rem; color: var(--color-text-secondary); }

@@ -1,0 +1,20 @@
+/* Profile */
+.profile-section { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-4); }
+.profile-section .section-title { margin-bottom: var(--sp-3); }
+
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+.profile-row:last-child { border-bottom: none; }
+
+.profile-row-label { color: var(--color-text-secondary); flex-shrink: 0; }
+.profile-row-value { text-align: right; font-weight: 500; word-break: break-all; }
+.profile-row-password { letter-spacing: 2px; color: var(--color-text-disabled); }
+
+.profile-logout { margin-top: var(--sp-4); }

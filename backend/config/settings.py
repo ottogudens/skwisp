@@ -8,6 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'change-me')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
+DJANGO_ENV = os.getenv('DJANGO_ENV', 'development')  # 'production' en Railway
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 SITE_URL = os.getenv('SITE_URL', 'http://localhost:8000')
 
@@ -23,6 +24,8 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'django_celery_beat',
+    'django_filters',
+    'ratelimit',
 
     'apps.clients',
     'apps.radius_sync',
@@ -32,6 +35,7 @@ INSTALLED_APPS = [
     'apps.inventory',
     'apps.dashboard',
     'apps.authentication',
+    'apps.portal',
 ]
 
 MIDDLEWARE = [
@@ -124,6 +128,13 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 50,
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
 }
 
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
@@ -147,3 +158,12 @@ CELERY_BEAT_SCHEDULE = {
 # Mercado Pago
 MP_ACCESS_TOKEN = os.getenv('MP_ACCESS_TOKEN', '')
 MP_WEBHOOK_SECRET = os.getenv('MP_WEBHOOK_SECRET', '')
+
+# Advertencia en stderr si falta MP_WEBHOOK_SECRET en producción
+import sys  # noqa: E402
+if DJANGO_ENV == 'production' and not MP_WEBHOOK_SECRET:
+    print(
+        '\n⚠️  ADVERTENCIA CRÍTICA: MP_WEBHOOK_SECRET no está configurado.'
+        ' El webhook de Mercado Pago rechazará todas las notificaciones.\n',
+        file=sys.stderr,
+    )
