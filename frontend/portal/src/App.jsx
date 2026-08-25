@@ -9,6 +9,8 @@ import Tickets from './pages/Tickets';
 import NewTicket from './pages/NewTicket';
 import Profile from './pages/Profile';
 
+import TicketDetail from './pages/TicketDetail';
+
 /** Protege rutas del portal — redirige a /login si no hay sesión activa */
 function PrivateRoute({ children }) {
   const { portalUser, loading } = usePortalAuth();
@@ -38,6 +40,7 @@ function AppRoutes() {
         <Route path="invoices" element={<Invoices />} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="tickets/new" element={<NewTicket />} />
+        <Route path="tickets/:id" element={<TicketDetail />} />
         <Route path="profile" element={<Profile />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

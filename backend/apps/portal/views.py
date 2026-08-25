@@ -195,6 +195,32 @@ def portal_create_payment(request, pk):
     })
 
 
+@api_view(['GET'])
+@authentication_classes([PortalTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def portal_download_pdf(request, pk):
+    """
+    GET /api/portal/invoices/{id}/pdf/
+    Genera y retorna la boleta en formato PDF para el cliente actual.
+    """
+    from django.template.loader import render_to_string
+    from django.http import HttpResponse
+    import weasyprint
+
+    client = request.user.client
+    try:
+        invoice = Invoice.objects.get(pk=pk, client=client)
+    except Invoice.DoesNotExist:
+        return Response({'detail': 'Factura no encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+    html_string = render_to_string('billing/invoice_pdf.html', {'invoice': invoice})
+    pdf_file = weasyprint.HTML(string=html_string).write_pdf()
+
+    response = HttpResponse(pdf_file, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="boleta_{invoice.id}.pdf"'
+    return response
+
+
 class PortalTicketListView(generics.ListCreateAPIView):
     """
     GET  /api/portal/tickets/  — Lista de tickets del cliente.

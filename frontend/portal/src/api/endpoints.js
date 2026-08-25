@@ -9,8 +9,8 @@ export const getMe = () => portalClient.get('/me/');
 
 // Facturas
 export const getInvoices = (params) => portalClient.get('/invoices/', { params });
-export const createPayment = (invoiceId) =>
-  portalClient.post(`/invoices/${invoiceId}/pay/`);
+export const createPayment = (invoiceId) => portalClient.post(`/invoices/${invoiceId}/pay/`);
+export const downloadInvoicePdf = (invoiceId) => portalClient.get(`/invoices/${invoiceId}/pdf/`, { responseType: 'blob' });
 
 // Tickets
 export const getTickets = (params) => portalClient.get('/tickets/', { params });

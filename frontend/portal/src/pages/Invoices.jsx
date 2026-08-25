@@ -71,6 +71,23 @@ export default function Invoices() {
     }
   };
 
+  const handleDownloadPdf = async (invoice) => {
+    try {
+      const { data } = await downloadInvoicePdf(invoice.id);
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `boleta_${invoice.id}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      toast.success('Descargando tu boleta...');
+    } catch {
+      toast.error('Gud no pudo descargar el PDF de la boleta.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="page-content">
@@ -116,19 +133,28 @@ export default function Invoices() {
                 )}
               </div>
 
-              {(inv.status === 'pending' || inv.status === 'overdue') && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
                 <button
-                  className="btn btn-primary btn-full"
-                  onClick={() => handlePay(inv)}
-                  disabled={payingId === inv.id}
-                  id={`pay-invoice-${inv.id}`}
+                  className="btn btn-secondary btn-full"
+                  onClick={() => handleDownloadPdf(inv)}
+                  id={`download-pdf-${inv.id}`}
                 >
-                  {payingId === inv.id
-                    ? <><span className="spinner spinner-sm" /> Redirigiendo…</>
-                    : '💳 Pagar ahora'
-                  }
+                  📄 PDF
                 </button>
-              )}
+                {(inv.status === 'pending' || inv.status === 'overdue') && (
+                  <button
+                    className="btn btn-primary btn-full"
+                    onClick={() => handlePay(inv)}
+                    disabled={payingId === inv.id}
+                    id={`pay-invoice-${inv.id}`}
+                  >
+                    {payingId === inv.id
+                      ? <><span className="spinner spinner-sm" /> Redirigiendo…</>
+                      : '💳 Pagar'
+                    }
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

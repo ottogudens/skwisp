@@ -61,6 +61,29 @@ export default function Home() {
         </div>
       )}
 
+      {/* Próxima boleta a pagar */}
+      {clientData?.recent_invoices && clientData.recent_invoices.filter(i => i.status === 'pending' || i.status === 'overdue').length > 0 && (() => {
+        const pendingInv = clientData.recent_invoices.filter(i => i.status === 'pending' || i.status === 'overdue')[0];
+        return (
+          <div className="card" style={{ borderColor: pendingInv.status === 'overdue' ? 'var(--color-danger)' : 'var(--color-accent)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <p className="section-title" style={{ margin: 0, color: pendingInv.status === 'overdue' ? 'var(--color-danger)' : 'var(--color-accent)' }}>
+                {pendingInv.status === 'overdue' ? '⚠️ Boleta vencida' : 'Boleta pendiente'}
+              </p>
+              <strong style={{ fontSize: 'var(--text-lg)' }}>
+                ${pendingInv.amount?.toLocaleString('es-CL')}
+              </strong>
+            </div>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+              Período: {MONTHS[pendingInv.period_month - 1]} {pendingInv.period_year} — Vence: {pendingInv.due_date}
+            </p>
+            <div style={{ display: 'flex', gap: '8px' }}>
+               <Link className="btn btn-primary btn-full" to="/invoices">💳 Pagar</Link>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* CTA de facturas */}
       <Link to="/invoices" className="home-cta-card card">
         <div className="home-cta-content">
