@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -5,10 +6,14 @@ from django.views.decorators.csrf import csrf_exempt
 from apps.billing.models import Invoice
 from .models import Payment
 from .services import get_sdk
+from .webhook_security import validate_mp_signature
 
 
 @csrf_exempt
 def mercadopago_webhook(request):
+    if not validate_mp_signature(request, getattr(settings, 'MP_WEBHOOK_SECRET', '')):
+        return JsonResponse({'error': 'invalid signature'}, status=401)
+
     payment_id = request.GET.get('data.id') or request.POST.get('data', {}).get('id')
     if not payment_id:
         return JsonResponse({'error': 'no payment id'}, status=400)
@@ -47,3 +52,14 @@ def mercadopago_webhook(request):
             client.save()
 
     return JsonResponse({'status': 'ok'})
+
+
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
+from .serializers import PaymentSerializer
+
+
+class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Payment.objects.select_related('invoice').all()
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]

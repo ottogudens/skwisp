@@ -1,6 +1,32 @@
 version: '3.8'
 
 services:
+  # --- Base de datos principal de Django (clientes, facturación, tickets, inventario) ---
+  db:
+    image: postgres:16
+    container_name: skwisp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-skwisp}
+      POSTGRES_USER: ${DB_USER:-skwisp}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-skwisp}
+    volumes:
+      - skwisp_db_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - skwisp_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: skwisp-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - skwisp_net
+
+  # --- Laboratorio FreeRADIUS (para pruebas contra el RB4011 antes de migrar el CCR1016) ---
   radius-db:
     image: postgres:16
     container_name: radius-postgres
@@ -15,7 +41,7 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
     networks:
-      - radius_net
+      - skwisp_net
 
   freeradius:
     image: freeradius/freeradius-server:3.2.5
@@ -35,11 +61,12 @@ services:
       - "1812:1812/udp"
       - "1813:1813/udp"
     networks:
-      - radius_net
+      - skwisp_net
 
 networks:
-  radius_net:
+  skwisp_net:
     driver: bridge
 
 volumes:
+  skwisp_db_data:
   radius_db_data:
