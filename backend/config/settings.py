@@ -53,7 +53,7 @@ ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [{
     'BACKEND': 'django.template.backends.django.DjangoTemplates',
-    'DIRS': [],
+    'DIRS': [BASE_DIR / 'templates'],
     'APP_DIRS': True,
     'OPTIONS': {
         'context_processors': [
@@ -152,6 +152,10 @@ CELERY_BEAT_SCHEDULE = {
     'suspend-overdue-clients': {
         'task': 'apps.billing.tasks.suspend_overdue_clients',
         'schedule': crontab(hour=7, minute=0),
+    },
+    'send-invoice-reminders': {
+        'task': 'apps.billing.tasks.send_invoice_reminders',
+        'schedule': crontab(hour=8, minute=0),
     },
 }
 

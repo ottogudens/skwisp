@@ -22,7 +22,7 @@ class ClientListSerializer(serializers.ModelSerializer):
         model = Client
         fields = [
             'id', 'first_name', 'last_name', 'rut', 'phone', 'address',
-            'plan', 'plan_name', 'status', 'billing_day',
+            'latitude', 'longitude', 'plan', 'plan_name', 'status', 'billing_day',
         ]
 
 

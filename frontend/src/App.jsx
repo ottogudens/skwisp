@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import ClientList from './pages/clients/ClientList';
 import ClientDetail from './pages/clients/ClientDetail';
 import ClientForm from './pages/clients/ClientForm';
+import CoverageMap from './pages/clients/CoverageMap';
 import InvoiceList from './pages/billing/InvoiceList';
 import TicketList from './pages/tickets/TicketList';
 import EquipmentList from './pages/inventory/EquipmentList';
@@ -44,6 +45,7 @@ function AppRoutes() {
         <Route path="clients/new" element={<ClientForm />} />
         <Route path="clients/:id" element={<ClientDetail />} />
         <Route path="clients/:id/edit" element={<ClientForm />} />
+        <Route path="clients/map" element={<CoverageMap />} />
         <Route path="billing" element={<InvoiceList />} />
         <Route path="tickets" element={<TicketList />} />
         <Route path="inventory" element={<EquipmentList />} />

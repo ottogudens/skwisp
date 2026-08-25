@@ -25,3 +25,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice = self.get_object()
         init_point = create_payment_preference(invoice)
         return Response({'init_point': init_point})
+
+    @action(detail=True, methods=['get'])
+    def pdf(self, request, pk=None):
+        from django.template.loader import render_to_string
+        from django.http import HttpResponse
+        import weasyprint
+
+        invoice = self.get_object()
+        html_string = render_to_string('billing/invoice_pdf.html', {'invoice': invoice})
+        pdf_file = weasyprint.HTML(string=html_string).write_pdf()
+
+        response = HttpResponse(pdf_file, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="boleta_{invoice.id}.pdf"'
+        return response

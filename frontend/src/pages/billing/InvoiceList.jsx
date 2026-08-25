@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getInvoices, createPaymentPreference } from '../../api/endpoints';
+import { getInvoices, createPaymentPreference, downloadInvoicePdf } from '../../api/endpoints';
 import { useToast } from '../../context/ToastContext';
 
 const STATUS_LABELS = {
@@ -41,6 +41,24 @@ export default function InvoiceList() {
       toast.error('No se pudo generar el link de pago.');
     } finally {
       setLinkingId(null);
+    }
+  };
+
+  const handleDownloadPdf = async (e, inv) => {
+    e.stopPropagation();
+    try {
+      const response = await downloadInvoicePdf(inv.id);
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `boleta_${inv.id}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      toast.success('Boleta descargada.');
+    } catch {
+      toast.error('Gud no pudo descargar el PDF de la boleta.');
     }
   };
 
@@ -90,10 +108,17 @@ export default function InvoiceList() {
                   <td style={{ fontWeight: 600 }}>{formatCLP(inv.amount)}</td>
                   <td><span className={`badge badge-${inv.status}`}>{STATUS_LABELS[inv.status]}</span></td>
                   <td style={{ color: 'var(--color-text-secondary)' }}>{inv.due_date}</td>
-                  <td>
+                  <td style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                      className="btn btn-sm btn-secondary"
+                      onClick={(e) => handleDownloadPdf(e, inv)}
+                      id={`download-pdf-${inv.id}`}
+                    >
+                      📄 PDF
+                    </button>
                     {inv.status !== 'paid' && inv.status !== 'cancelled' && (
                       <button
-                        className="btn btn-sm btn-secondary"
+                        className="btn btn-sm btn-primary"
                         onClick={(e) => handleGenerateLink(e, inv)}
                         disabled={linkingId === inv.id}
                         id={`pay-link-${inv.id}`}
@@ -130,18 +155,25 @@ export default function InvoiceList() {
                   <span className="list-card-label">Vence</span>
                   <span className="list-card-value">{inv.due_date}</span>
                 </div>
-                {inv.status !== 'paid' && inv.status !== 'cancelled' && (
-                  <div className="list-card-actions">
+                <div className="list-card-actions">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ flex: 1 }}
+                    onClick={(e) => handleDownloadPdf(e, inv)}
+                  >
+                    📄 PDF
+                  </button>
+                  {inv.status !== 'paid' && inv.status !== 'cancelled' && (
                     <button
                       className="btn btn-primary btn-sm"
                       style={{ flex: 1 }}
                       onClick={(e) => handleGenerateLink(e, inv)}
                       disabled={linkingId === inv.id}
                     >
-                      {linkingId === inv.id ? <span className="spinner spinner-sm" /> : '💳 Generar link de pago'}
+                      {linkingId === inv.id ? <span className="spinner spinner-sm" /> : '💳 Pagar'}
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             ))}
           </div>

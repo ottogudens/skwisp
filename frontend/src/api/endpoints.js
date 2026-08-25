@@ -16,6 +16,8 @@ export const getInvoices = (params) => apiClient.get('/invoices/', { params });
 export const getInvoice = (id) => apiClient.get(`/invoices/${id}/`);
 export const createPaymentPreference = (invoiceId) =>
   apiClient.post(`/invoices/${invoiceId}/create_payment/`);
+export const downloadInvoicePdf = (invoiceId) => 
+  apiClient.get(`/invoices/${invoiceId}/pdf/`, { responseType: 'blob' });
 
 // Pagos
 export const getPayments = (params) => apiClient.get('/payments/', { params });

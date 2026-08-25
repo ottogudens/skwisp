@@ -83,6 +83,7 @@ export default function ClientList() {
       <div className="page-header">
         <h1>Clientes</h1>
         <div className="page-header-actions">
+          <Link className="btn btn-secondary" to="/clients/map" id="map-client-btn">🗺️ Ver Mapa</Link>
           <Link className="btn btn-primary" to="/clients/new" id="new-client-btn">+ Nuevo cliente</Link>
         </div>
       </div>

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Boleta #{{ invoice.id }}</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; }
+        .header { border-bottom: 2px solid #22c55e; padding-bottom: 20px; margin-bottom: 30px; }
+        .logo { font-size: 24px; font-weight: bold; color: #22c55e; }
+        .company-details { float: right; text-align: right; font-size: 14px; color: #666; }
+        .invoice-details { margin-bottom: 40px; }
+        .client-info { float: left; }
+        .invoice-meta { float: right; text-align: right; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+        th { background-color: #f8f9fa; text-align: left; padding: 12px; border-bottom: 2px solid #ddd; }
+        td { padding: 12px; border-bottom: 1px solid #ddd; }
+        .total-row { font-weight: bold; font-size: 18px; }
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
+        .status-paid { background-color: #dcfce7; color: #166534; }
+        .status-pending { background-color: #dbeafe; color: #1e40af; }
+        .status-overdue { background-color: #fee2e2; color: #991b1b; }
+        .footer { text-align: center; margin-top: 50px; font-size: 12px; color: #888; border-top: 1px solid #eee; padding-top: 20px; }
+        .clearfix::after { content: ""; clear: both; display: table; }
+    </style>
+</head>
+<body>
+
+    <div class="header clearfix">
+        <div class="company-details">
+            <strong>FibraPuconCore ISP</strong><br>
+            soporte@fibrapuconcore.cl<br>
+            +56 9 1234 5678
+        </div>
+        <div class="logo">skwisp</div>
+    </div>
+
+    <div class="invoice-details clearfix">
+        <div class="client-info">
+            <strong>Facturar a:</strong><br>
+            {{ invoice.client.first_name }} {{ invoice.client.last_name }}<br>
+            RUT: {{ invoice.client.rut }}<br>
+            {{ invoice.client.address }}
+        </div>
+        <div class="invoice-meta">
+            <strong>Boleta de Servicio #{{ invoice.id }}</strong><br>
+            Período: Mes {{ invoice.period_month }} / {{ invoice.period_year }}<br>
+            Vencimiento: {{ invoice.due_date|date:"d/m/Y" }}<br>
+            Estado: 
+            {% if invoice.status == 'paid' %}<span class="status-badge status-paid">Pagada</span>
+            {% elif invoice.status == 'overdue' %}<span class="status-badge status-overdue">Vencida</span>
+            {% else %}<span class="status-badge status-pending">Pendiente</span>{% endif %}
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Descripción</th>
+                <th style="text-align: right;">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Servicio de Internet Fibra Óptica - Plan {{ invoice.client.plan.name }}</td>
+                <td style="text-align: right;">${{ invoice.amount }}</td>
+            </tr>
+            <tr class="total-row">
+                <td style="text-align: right;">Total a pagar:</td>
+                <td style="text-align: right;">${{ invoice.amount }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer">
+        Gracias por preferir nuestros servicios. Para consultas, contáctenos a soporte@fibrapuconcore.cl<br>
+        Documento generado automáticamente por skwisp ISP Management.
+    </div>
+
+</body>
+</html>

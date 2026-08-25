@@ -11,3 +11,5 @@ django-cors-headers>=4.4
 gunicorn>=22.0
 django-filter>=24.2
 django-ratelimit>=4.1
+WeasyPrint>=62.0
+django-weasyprint>=2.2.0

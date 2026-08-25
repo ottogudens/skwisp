@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getClient, forceSyncClient } from '../../api/endpoints';
+import { getClient, forceSyncClient, downloadInvoicePdf } from '../../api/endpoints';
 import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../../context/ConfirmContext';
 
@@ -150,6 +150,25 @@ export default function ClientDetail() {
       {/* Tab 2 — Boletas */}
       {activeTab === 2 && (() => {
         const invoices = client.recent_invoices ?? [];
+
+        const handleDownloadPdf = async (e, inv) => {
+          e.stopPropagation();
+          try {
+            const response = await downloadInvoicePdf(inv.id);
+            const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `boleta_${inv.id}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.parentNode.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            toast.success('Boleta descargada.');
+          } catch {
+            toast.error('Gud no pudo descargar el PDF.');
+          }
+        };
+
         return invoices.length === 0 ? (
           <div className="empty-state">
             <span className="empty-state-icon">🧾</span>
@@ -158,7 +177,7 @@ export default function ClientDetail() {
         ) : (
           <>
             <table className="data-table desktop-only">
-              <thead><tr><th>Período</th><th>Monto</th><th>Estado</th><th>Vencimiento</th></tr></thead>
+              <thead><tr><th>Período</th><th>Monto</th><th>Estado</th><th>Vencimiento</th><th></th></tr></thead>
               <tbody>
                 {invoices.map((inv) => (
                   <tr key={inv.id}>
@@ -166,6 +185,14 @@ export default function ClientDetail() {
                     <td>${inv.amount?.toLocaleString('es-CL')}</td>
                     <td><span className={`badge badge-${inv.status}`}>{inv.status}</span></td>
                     <td>{inv.due_date}</td>
+                    <td>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={(e) => handleDownloadPdf(e, inv)}
+                      >
+                        📄 PDF
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -184,6 +211,15 @@ export default function ClientDetail() {
                   <div className="list-card-row">
                     <span className="list-card-label">Vence</span>
                     <span className="list-card-value">{inv.due_date}</span>
+                  </div>
+                  <div className="list-card-actions">
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ flex: 1 }}
+                      onClick={(e) => handleDownloadPdf(e, inv)}
+                    >
+                      📄 Descargar PDF
+                    </button>
                   </div>
                 </div>
               ))}
