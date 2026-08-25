@@ -1,0 +1,16 @@
+# Copiar como clients.conf y completar con el secret real (openssl rand -hex 32)
+# NUNCA commitear clients.conf con el secret real al repo.
+
+client rb4011_lab {
+    ipaddr     = 192.168.88.1
+    secret     = CAMBIAR_ESTE_SECRET
+    shortname  = rb-gudens-lab
+    nastype    = mikrotik
+}
+
+# client ccr1016_core {
+#     ipaddr     = <IP_MANAGEMENT_CCR1016>
+#     secret     = CAMBIAR_ESTE_SECRET
+#     shortname  = fibrapuconcore
+#     nastype    = mikrotik
+# }

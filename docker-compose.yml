@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  radius-db:
+    image: postgres:16
+    container_name: radius-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: radius
+      POSTGRES_USER: radius
+      POSTGRES_PASSWORD: ${RADIUS_DB_PASSWORD}
+    volumes:
+      - radius_db_data:/var/lib/postgresql/data
+      - ./freeradius/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    networks:
+      - radius_net
+
+  freeradius:
+    image: freeradius/freeradius-server:3.2.5
+    container_name: freeradius
+    restart: unless-stopped
+    depends_on:
+      - radius-db
+    environment:
+      POSTGRESQL_SERVER: radius-db
+      POSTGRESQL_LOGIN: radius
+      POSTGRESQL_PASSWORD: ${RADIUS_DB_PASSWORD}
+      POSTGRESQL_DATABASE: radius
+    volumes:
+      - ./freeradius/clients.conf:/etc/raddb/clients.conf:ro
+      - ./freeradius/mods-enabled/sql:/etc/raddb/mods-enabled/sql:ro
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    networks:
+      - radius_net
+
+networks:
+  radius_net:
+    driver: bridge
+
+volumes:
+  radius_db_data:

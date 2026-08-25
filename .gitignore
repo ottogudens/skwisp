@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Django
+*.sqlite3
+/backend/.env
+/backend/staticfiles/
+/backend/media/
+
+# Node / React
+node_modules/
+/frontend/dist/
+/frontend/.env
+
+# FreeRADIUS secrets
+/freeradius/clients.conf
+/freeradius/schema.sql
+
+# Misc
+.DS_Store
+*.log
