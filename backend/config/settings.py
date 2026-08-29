@@ -175,11 +175,19 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.billing.tasks.send_invoice_reminders',
         'schedule': crontab(hour=8, minute=0),
     },
+    'retry-failed-radius-syncs': {
+        'task': 'apps.radius_sync.tasks.retry_failed_radius_syncs',
+        'schedule': crontab(minute='*/15'),
+    },
 }
 
 # Mercado Pago
 MP_ACCESS_TOKEN = os.getenv('MP_ACCESS_TOKEN', '')
 MP_WEBHOOK_SECRET = os.getenv('MP_WEBHOOK_SECRET', '')
+
+# Facturación: días de plazo entre la generación de la boleta y su vencimiento.
+# Al día siguiente del vencimiento, suspend_overdue_clients() corta el servicio.
+BILLING_GRACE_DAYS = int(os.getenv('BILLING_GRACE_DAYS', '10'))
 
 # Advertencia en stderr si falta MP_WEBHOOK_SECRET en producción
 import sys  # noqa: E402

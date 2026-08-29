@@ -134,7 +134,10 @@ Para que FreeRADIUS hable con tu base de datos de Railway, agrega estas variable
 | `POSTGRESQL_LOGIN` | `postgres` (o tu usuario) | Usuario generado para Postgres. |
 | `POSTGRESQL_PASSWORD` | `${{Postgres-Radius.POSTGRES_PASSWORD}}` | Contraseña generada por Railway Postgres. |
 | `POSTGRESQL_DATABASE` | `railway` (o tu db name) | Nombre de la base de datos a utilizar. |
-| `RADIUS_CLIENT_SECRET` | *(Generar un valor seguro)* | Secreto para conectar los Mikrotik. Leído desde `clients.conf`. |
+| `RADIUS_RB4011_IP` | ver 6.5 | IP del NAS de laboratorio (ver limitación abajo). |
+| `RADIUS_RB4011_SECRET` | *(Generar con `openssl rand -hex 32`)* | Secreto único para el RB4011. |
+| `RADIUS_CCR1016_IP` | ver 6.5 | IP del NAS de producción, cuando se migre. |
+| `RADIUS_CCR1016_SECRET` | *(Generar con `openssl rand -hex 32`, distinto al del RB4011)* | Secreto único para el CCR1016. |
 
 ### 6.4. Exposición de Puertos UDP (Conexión con Mikrotik)
 Por defecto, Railway solo enruta tráfico HTTP/HTTPS. Para que tus routers Mikrotik alcancen a este Radius, debes habilitar el proxy UDP:
@@ -142,8 +145,18 @@ Por defecto, Railway solo enruta tráfico HTTP/HTTPS. Para que tus routers Mikro
 2. Desplázate hacia abajo hasta la sección **Public Networking**.
 3. Selecciona **TCP Proxy** y cámbialo a **TCP/UDP Proxy** o genera un subdominio de Proxy público (las opciones varían ligeramente con actualizaciones de Railway).
 4. Configura el ruteo de red apuntando al servicio en los puertos **1812 (UDP)** y **1813 (UDP)**.
-5. Railway te asignará un dominio especial y unos puertos externos asignados aleatoriamente (ej: `mi-proxy.up.railway.app:13725`). 
+5. Railway te asignará un dominio especial y unos puertos externos asignados aleatoriamente (ej: `mi-proxy.up.railway.app:13725`).
 6. **Configuración Final:** En tu router **Mikrotik** usarás ese puerto público en vez del típico 1812/1813.
+
+### 6.5. ⚠️ Seguridad RADIUS — limitación importante del proxy UDP de Railway
+
+**El proxy UDP de Railway no preserva la IP de origen real del router.** FreeRADIUS ve la IP interna del proxy de Railway, no la IP pública del MikroTik. Esto significa que **restringir `clients.conf` por IP no funciona en este despliegue** — el valor de `RADIUS_RB4011_IP` / `RADIUS_CCR1016_IP` en la práctica queda inútil como control de acceso bajo Railway (aunque el archivo lo declare, FreeRADIUS terminará viendo siempre la IP del proxy).
+
+Con esa limitación, la única defensa real en este escenario es:
+
+1. **Un secret distinto y largo por cada NAS** (ya configurado arriba) — así, si un secret se filtra, solo compromete a ese router, no a todos.
+2. **Rotar los secrets periódicamente**, especialmente después de cualquier sospecha de exposición.
+3. **Para producción (CCR1016), evaluar seriamente NO usar el proxy UDP de Railway.** La solución implementada es un hub WireGuard propio (fuera de Railway) que pone a los MikroTik y a FreeRADIUS en la misma LAN virtual — ver **[`WIREGUARD_SETUP.md`](./WIREGUARD_SETUP.md)** para la guía completa paso a paso. Railway + proxy UDP sigue siendo aceptable para experimentar en el **laboratorio** sin WireGuard, pero para el core de producción con ~300 clientes dependiendo de él, WireGuard es la arquitectura recomendada.
 
 ---
 

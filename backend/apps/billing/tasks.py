@@ -1,5 +1,6 @@
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.utils import timezone
 
 from apps.clients.models import Client
@@ -16,7 +17,7 @@ def generate_monthly_invoices():
 
     created_count = 0
     for client in clients_due:
-        due_date = today + relativedelta(days=10)
+        due_date = today + relativedelta(days=settings.BILLING_GRACE_DAYS)
         invoice, was_created = Invoice.objects.get_or_create(
             client=client,
             period_month=today.month,

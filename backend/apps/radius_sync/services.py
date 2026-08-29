@@ -2,8 +2,12 @@ from django.db import connections
 from .models import RadiusSyncLog
 
 
-def sync_client_to_radius(client):
-    """Idempotente: borra y reinserta el estado del cliente en las tablas de FreeRADIUS."""
+def sync_client_to_radius(client, attempt=1):
+    """Idempotente: borra y reinserta el estado del cliente en las tablas de FreeRADIUS.
+
+    Se usa tanto para el sync síncrono (botón "Forzar sync" en el admin) como desde la
+    tarea Celery con reintentos (ver tasks.sync_client_to_radius_task).
+    """
     if not hasattr(client, 'credential'):
         return
 
@@ -41,9 +45,12 @@ def sync_client_to_radius(client):
                 )
             # cancelled/pending: no se inserta nada -> rechazo automático
 
-        RadiusSyncLog.objects.create(client=client, action=f'sync_{client.status}', success=True)
+        RadiusSyncLog.objects.create(
+            client=client, action=f'sync_{client.status}', success=True, attempt=attempt
+        )
     except Exception as exc:  # noqa: BLE001
         RadiusSyncLog.objects.create(
-            client=client, action=f'sync_{client.status}', success=False, error_message=str(exc)
+            client=client, action=f'sync_{client.status}', success=False,
+            error_message=str(exc), attempt=attempt,
         )
         raise

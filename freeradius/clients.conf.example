@@ -1,6 +1,41 @@
-client railway_proxy {
-    ipaddr     = 0.0.0.0/0
-    secret     = $ENV{RADIUS_CLIENT_SECRET}
-    shortname  = skwisp-mikrotik
+# clients.conf — declaración de NAS (routers MikroTik) autorizados a hablar con FreeRADIUS.
+#
+# ARQUITECTURA RECOMENDADA: WireGuard
+# ------------------------------------
+# Los MikroTik y FreeRADIUS conviven en la misma "LAN virtual" vía un túnel WireGuard
+# (ver WIREGUARD_SETUP.md). Esto resuelve dos problemas a la vez:
+#   1. La IP que ve FreeRADIUS es siempre la IP interna fija del túnel (ej. 10.10.10.x),
+#      nunca cambia aunque el router tenga IP pública dinámica.
+#   2. Bajo el proxy UDP de Railway, FreeRADIUS ve la IP del proxy, no la del router — con
+#      WireGuard este problema desaparece porque FreeRADIUS ya no depende de esa IP pública:
+#      el tráfico real llega encapsulado desde el túnel con la IP interna del peer.
+#
+# IMPORTANTE — seguridad:
+# NUNCA declares un client con ipaddr = 0.0.0.0/0. Cada NAS real tiene su propio bloque, su
+# propia IP (interna, del túnel) y su propio secret — así puedes revocar el acceso de un
+# router sin afectar a los demás.
+
+# --- Laboratorio: RB4011 (pruebas antes de tocar producción) ---
+# RADIUS_RB4011_IP = IP interna asignada al RB4011 dentro del túnel WireGuard (ej. 10.10.10.2)
+client rb4011_lab {
+    ipaddr     = $ENV{RADIUS_RB4011_IP}
+    secret     = $ENV{RADIUS_RB4011_SECRET}
+    shortname  = rb4011-lab
     nastype    = mikrotik
 }
+
+# --- Producción: CCR1016 (FibraPuconCore core router) ---
+# Descomentar y completar cuando se migre producción.
+# RouterOS del CCR1016 debe estar en v7+ para soportar WireGuard nativo (ver WIREGUARD_SETUP.md).
+# client ccr1016_core {
+#     ipaddr     = $ENV{RADIUS_CCR1016_IP}
+#     secret     = $ENV{RADIUS_CCR1016_SECRET}
+#     shortname  = ccr1016-core
+#     nastype    = mikrotik
+# }
+
+# --- Alternativa sin WireGuard (NO recomendada) ---
+# Si por algún motivo el NAS conecta con IP pública directa en vez de por el túnel, declara
+# esa IP pública tal cual (nunca 0.0.0.0/0). Pierdes la protección de que la IP sea siempre
+# la misma/interna, y bajo Railway con proxy UDP esta opción ni siquiera es viable (ver
+# MANUAL_DESPLIEGUE_RAILWAY.md §6.5).

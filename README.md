@@ -107,6 +107,7 @@ npm run dev
 - [x] Endpoint de healthcheck (`/api/dashboard/health/`) para Railway/monitoreo
 - [x] docker-compose completo (Postgres + Redis de Django, más laboratorio FreeRADIUS)
 - [x] Migraciones iniciales generadas
+- [x] Túnel WireGuard (MikroTik ↔ FreeRADIUS en la misma LAN virtual) — ver WIREGUARD_SETUP.md
 - [ ] Pruebas en RB4011 (laboratorio) — en curso
 - [ ] Migración a producción (CCR1016)
 

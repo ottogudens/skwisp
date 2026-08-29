@@ -26,7 +26,6 @@ services:
     networks:
       - skwisp_net
 
-  # --- Laboratorio FreeRADIUS (para pruebas contra el RB4011 antes de migrar el CCR1016) ---
   radius-db:
     image: postgres:16
     container_name: radius-postgres
@@ -43,25 +42,57 @@ services:
     networks:
       - skwisp_net
 
+  # --- Hub WireGuard: los MikroTik (RB4011, CCR1016) se conectan aquí como peers, quedando
+  # en la misma LAN virtual que FreeRADIUS. SOLO para VPS/servidor propio con soporte de
+  # kernel WireGuard — NO se puede desplegar en Railway (sin acceso a /dev/net/tun ni
+  # CAP_NET_ADMIN en sus contenedores). Ver WIREGUARD_SETUP.md para la guía completa.
+  #
+  # UI web de administración de peers en http://<host>:51821 (protegida con WG_PASSWORD).
+  wireguard:
+    image: ghcr.io/wg-easy/wg-easy:14
+    container_name: skwisp-wireguard
+    restart: unless-stopped
+    environment:
+      - WG_HOST=${WIREGUARD_PUBLIC_HOST}
+      - PASSWORD_HASH=${WIREGUARD_UI_PASSWORD_HASH}
+      - WG_DEFAULT_ADDRESS=10.10.10.x
+      - WG_PORT=51820
+    volumes:
+      - wireguard_data:/etc/wireguard
+    ports:
+      - "51820:51820/udp"   # túnel WireGuard — deben apuntar aquí los MikroTik
+      - "127.0.0.1:51821:51821"  # UI de administración, solo accesible localmente (usar SSH tunnel/reverse proxy si se necesita remoto)
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    networks:
+      - skwisp_net
+
+  # FreeRADIUS comparte el namespace de red del contenedor wireguard (network_mode:
+  # service:wireguard) para que el tráfico que llega por el túnel conserve la IP interna
+  # real del peer (10.10.10.x) al llegar al socket de FreeRADIUS — así clients.conf puede
+  # restringir por esa IP de forma efectiva.
   freeradius:
     image: freeradius/freeradius-server:3.2.5
     container_name: freeradius
     restart: unless-stopped
     depends_on:
       - radius-db
+      - wireguard
+    network_mode: "service:wireguard"
     environment:
       POSTGRESQL_SERVER: radius-db
       POSTGRESQL_LOGIN: radius
       POSTGRESQL_PASSWORD: ${RADIUS_DB_PASSWORD}
       POSTGRESQL_DATABASE: radius
+      RADIUS_RB4011_IP: ${RADIUS_RB4011_IP}
+      RADIUS_RB4011_SECRET: ${RADIUS_RB4011_SECRET}
     volumes:
       - ./freeradius/clients.conf:/etc/raddb/clients.conf:ro
       - ./freeradius/mods-enabled/sql:/etc/raddb/mods-enabled/sql:ro
-    ports:
-      - "1812:1812/udp"
-      - "1813:1813/udp"
-    networks:
-      - skwisp_net
 
 networks:
   skwisp_net:
@@ -70,3 +101,4 @@ networks:
 volumes:
   skwisp_db_data:
   radius_db_data:
+  wireguard_data:
