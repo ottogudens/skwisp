@@ -1,7 +1,12 @@
+import secrets
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.db import models
 
 from apps.clients.models import Client
+
+
+def generate_portal_token():
+    return secrets.token_urlsafe(48)
 
 
 class ClientUserManager(BaseUserManager):
@@ -61,3 +66,17 @@ class ClientUser(AbstractBaseUser):
 
     def has_module_perms(self, app_label):
         return False
+
+
+class PortalToken(models.Model):
+    """Token de autenticación para usuarios del portal de clientes."""
+
+    key = models.CharField(max_length=64, unique=True, default=generate_portal_token)
+    user = models.OneToOneField(ClientUser, on_delete=models.CASCADE, related_name='auth_token')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = 'portal'
+
+    def __str__(self):
+        return f'Token portal: {self.user.rut}'
