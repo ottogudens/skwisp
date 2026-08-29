@@ -25,7 +25,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_celery_beat',
     'django_filters',
-    'ratelimit',
+    'django_ratelimit',
 
     'apps.clients',
     'apps.radius_sync',
