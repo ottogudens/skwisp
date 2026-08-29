@@ -6,6 +6,7 @@ que valida el token contra ClientUser (no contra el User de Django).
 """
 from django.conf import settings
 from django.utils import timezone
+from django_ratelimit.decorators import ratelimit
 from rest_framework import status, generics
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.authtoken.models import Token
@@ -62,6 +63,10 @@ class PortalTokenAuthentication(BaseAuthentication):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+# Limita por IP (10/min) y adicionalmente por RUT objetivo (5/min) — cubre tanto un
+# atacante fijo en una IP como fuerza bruta distribuida contra un mismo cliente.
+@ratelimit(key='ip', rate='10/m', method='POST', block=True)
+@ratelimit(key='post:rut', rate='5/m', method='POST', block=True)
 def portal_login(request):
     """
     POST /api/portal/auth/login/

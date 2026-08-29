@@ -42,7 +42,7 @@
             {{ invoice.client.address }}
         </div>
         <div class="invoice-meta">
-            <strong>Boleta de Servicio #{{ invoice.id }}</strong><br>
+            <strong>Comprobante de Cobro #{{ invoice.id }}</strong><br>
             Período: Mes {{ invoice.period_month }} / {{ invoice.period_year }}<br>
             Vencimiento: {{ invoice.due_date|date:"d/m/Y" }}<br>
             Estado: 
@@ -72,6 +72,10 @@
     </table>
 
     <div class="footer">
+        Este comprobante es informativo y no constituye un documento tributario. El pago con
+        tarjeta queda respaldado ante el SII mediante el voucher emitido por Mercado Pago
+        (válido como boleta). Para pagos por transferencia, la boleta electrónica se emite
+        de forma independiente.<br><br>
         Gracias por preferir nuestros servicios. Para consultas, contáctenos a soporte@fibrapuconcore.cl<br>
         Documento generado automáticamente por skwisp ISP Management.
     </div>

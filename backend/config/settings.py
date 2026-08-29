@@ -9,7 +9,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'change-me')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 DJANGO_ENV = os.getenv('DJANGO_ENV', 'development')  # 'production' en Railway
-ALLOWED_HOSTS = ['*']
+
+# ALLOWED_HOSTS ahora sí se lee desde el entorno (antes quedaba hardcodeado a ['*'],
+# ignorando la variable ya documentada en .env.example). '*' solo se tolera fuera de producción.
+_allowed_hosts_env = os.getenv('ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(',') if h.strip()] or ['*']
+
 SITE_URL = os.getenv('SITE_URL', 'http://localhost:8000')
 
 INSTALLED_APPS = [
@@ -130,11 +135,26 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
+    # Throttling global de la API — protege contra abuso/fuerza bruta a nivel de
+    # cualquier endpoint autenticado o anónimo, además del ratelimit específico
+    # que ya tienen los endpoints de login.
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '30/min',
+        'user': '120/min',
+    },
 }
 
-CORS_ORIGIN_ALLOW_ALL = True
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if os.getenv('CORS_ALLOWED_ORIGINS') else []
+# CORS — antes quedaba hardcodeado a "permitir todo origen" sin importar el entorno,
+# lo que anulaba por completo la whitelist de CORS_ALLOWED_ORIGINS. Ahora:
+#   - En desarrollo (DJANGO_ENV != production): permite todo, para no trabar el flujo local.
+#   - En producción: solo los orígenes explícitamente listados en CORS_ALLOWED_ORIGINS.
+CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
+CORS_ALLOW_ALL_ORIGINS = DJANGO_ENV != 'production'
+CORS_ORIGIN_ALLOW_ALL = CORS_ALLOW_ALL_ORIGINS
 
 # Celery & Cache
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', '')
@@ -196,4 +216,13 @@ if DJANGO_ENV == 'production' and not MP_WEBHOOK_SECRET:
         '\n⚠️  ADVERTENCIA CRÍTICA: MP_WEBHOOK_SECRET no está configurado.'
         ' El webhook de Mercado Pago rechazará todas las notificaciones.\n',
         file=sys.stderr,
+    )
+
+# Falla dura en producción si SECRET_KEY quedó con el valor por defecto — antes solo
+# se advertía sobre MP_WEBHOOK_SECRET; SECRET_KEY es al menos igual de crítico
+# (firma de sesiones, tokens de reseteo de password, etc.).
+if DJANGO_ENV == 'production' and SECRET_KEY == 'change-me':
+    raise RuntimeError(
+        'SECRET_KEY no está configurado en producción (sigue con el valor por defecto '
+        '"change-me"). Define una SECRET_KEY real antes de desplegar.'
     )
