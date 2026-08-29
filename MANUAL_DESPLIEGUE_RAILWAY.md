@@ -46,6 +46,7 @@ Puedes optar por desplegar una **segunda instancia** de PostgreSQL, o en su defe
 | `DEBUG` | `False` | Desactiva el modo depuración en producción. |
 | `SECRET_KEY` | *(Generar un valor seguro)* | Llave secreta de Django. |
 | `ALLOWED_HOSTS` | `*` o `midominio.up.railway.app` | Dominios permitidos. |
+| `CORS_ALLOWED_ORIGINS` | `https://tu-frontend.up.railway.app` | URL de origen de react (frontend/portal). Puede ser separado por comas si hay varios. |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Referencia a tu base de datos principal. |
 | `RADIUS_DATABASE_URL`| `${{Postgres-Radius.DATABASE_URL}}` | Referencia a la BD de FreeRADIUS. |
 | `CELERY_BROKER_URL` | `${{Redis.REDIS_URL}}` | URL del servicio Redis. |
