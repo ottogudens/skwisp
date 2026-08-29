@@ -1,0 +1,847 @@
+From 99613b493ea4fe6d77ab22bc5233a99437c93405 Mon Sep 17 00:00:00 2001
+From: Otto Gudens <otto@skwisp.local>
+Date: Sat, 29 Aug 2026 06:48:39 +0000
+Subject: [PATCH 1/2] =?UTF-8?q?security:=20eliminar=20RADIUS=20abierto=200?=
+ =?UTF-8?q?.0.0.0/0,=20soporte=20multi-NAS=20con=20secrets=20propios,=20re?=
+ =?UTF-8?q?try=20autom=C3=A1tico=20de=20sync=20RADIUS=20v=C3=ADa=20Celery,?=
+ =?UTF-8?q?=20plazo=20de=20gracia=20configurable?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ MANUAL_DESPLIEGUE_RAILWAY.md                  | 17 ++++-
+ backend/.env.example                          | 10 +++
+ backend/apps/billing/tasks.py                 |  3 +-
+ backend/apps/clients/signals.py               | 10 ++-
+ backend/apps/radius_sync/admin.py             | 13 +++-
+ .../0002_nasdevice_radiussynclog_attempt.py   | 34 ++++++++++
+ backend/apps/radius_sync/models.py            | 28 ++++++++
+ backend/apps/radius_sync/services.py          | 15 +++--
+ backend/apps/radius_sync/tasks.py             | 64 +++++++++++++++++++
+ backend/config/settings.py                    |  8 +++
+ freeradius/clients.conf.example               | 47 ++++++++++++--
+ 11 files changed, 233 insertions(+), 16 deletions(-)
+ create mode 100644 backend/apps/radius_sync/migrations/0002_nasdevice_radiussynclog_attempt.py
+ create mode 100644 backend/apps/radius_sync/tasks.py
+
+diff --git a/MANUAL_DESPLIEGUE_RAILWAY.md b/MANUAL_DESPLIEGUE_RAILWAY.md
+index 62fc2cc..c226e37 100644
+--- a/MANUAL_DESPLIEGUE_RAILWAY.md
++++ b/MANUAL_DESPLIEGUE_RAILWAY.md
+@@ -134,7 +134,10 @@ Para que FreeRADIUS hable con tu base de datos de Railway, agrega estas variable
+ | `POSTGRESQL_LOGIN` | `postgres` (o tu usuario) | Usuario generado para Postgres. |
+ | `POSTGRESQL_PASSWORD` | `${{Postgres-Radius.POSTGRES_PASSWORD}}` | Contraseña generada por Railway Postgres. |
+ | `POSTGRESQL_DATABASE` | `railway` (o tu db name) | Nombre de la base de datos a utilizar. |
+-| `RADIUS_CLIENT_SECRET` | *(Generar un valor seguro)* | Secreto para conectar los Mikrotik. Leído desde `clients.conf`. |
++| `RADIUS_RB4011_IP` | ver 6.5 | IP del NAS de laboratorio (ver limitación abajo). |
++| `RADIUS_RB4011_SECRET` | *(Generar con `openssl rand -hex 32`)* | Secreto único para el RB4011. |
++| `RADIUS_CCR1016_IP` | ver 6.5 | IP del NAS de producción, cuando se migre. |
++| `RADIUS_CCR1016_SECRET` | *(Generar con `openssl rand -hex 32`, distinto al del RB4011)* | Secreto único para el CCR1016. |
+ 
+ ### 6.4. Exposición de Puertos UDP (Conexión con Mikrotik)
+ Por defecto, Railway solo enruta tráfico HTTP/HTTPS. Para que tus routers Mikrotik alcancen a este Radius, debes habilitar el proxy UDP:
+@@ -142,9 +145,19 @@ Por defecto, Railway solo enruta tráfico HTTP/HTTPS. Para que tus routers Mikro
+ 2. Desplázate hacia abajo hasta la sección **Public Networking**.
+ 3. Selecciona **TCP Proxy** y cámbialo a **TCP/UDP Proxy** o genera un subdominio de Proxy público (las opciones varían ligeramente con actualizaciones de Railway).
+ 4. Configura el ruteo de red apuntando al servicio en los puertos **1812 (UDP)** y **1813 (UDP)**.
+-5. Railway te asignará un dominio especial y unos puertos externos asignados aleatoriamente (ej: `mi-proxy.up.railway.app:13725`). 
++5. Railway te asignará un dominio especial y unos puertos externos asignados aleatoriamente (ej: `mi-proxy.up.railway.app:13725`).
+ 6. **Configuración Final:** En tu router **Mikrotik** usarás ese puerto público en vez del típico 1812/1813.
+ 
++### 6.5. ⚠️ Seguridad RADIUS — limitación importante del proxy UDP de Railway
++
++**El proxy UDP de Railway no preserva la IP de origen real del router.** FreeRADIUS ve la IP interna del proxy de Railway, no la IP pública del MikroTik. Esto significa que **restringir `clients.conf` por IP no funciona en este despliegue** — el valor de `RADIUS_RB4011_IP` / `RADIUS_CCR1016_IP` en la práctica queda inútil como control de acceso bajo Railway (aunque el archivo lo declare, FreeRADIUS terminará viendo siempre la IP del proxy).
++
++Con esa limitación, la única defensa real en este escenario es:
++
++1. **Un secret distinto y largo por cada NAS** (ya configurado arriba) — así, si un secret se filtra, solo compromete a ese router, no a todos.
++2. **Rotar los secrets periódicamente**, especialmente después de cualquier sospecha de exposición.
++3. **Para producción (CCR1016), evaluar seriamente NO usar el proxy UDP de Railway.** La alternativa más segura es levantar FreeRADIUS en una VPS propia (o en el mismo segmento de red del ISP) conectada al CCR1016 por LAN/VPN, donde la restricción por IP sí es efectiva. Railway + proxy UDP es aceptable para el **laboratorio** (RB4011, tráfico de pruebas, sin clientes reales en riesgo), pero no es la arquitectura recomendada para el core de producción con ~300 clientes dependiendo de ella.
++
+ ---
+ 
+ ## 7. Pasos Post-Despliegue (Verificaciones)
+diff --git a/backend/.env.example b/backend/.env.example
+index 8d7a800..1c29975 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -16,3 +16,13 @@ CELERY_BROKER_URL=redis://localhost:6379/0
+ # Mercado Pago
+ MP_ACCESS_TOKEN=your-mp-access-token
+ MP_WEBHOOK_SECRET=your-mp-webhook-secret
++
++# Facturación
++BILLING_GRACE_DAYS=10
++
++# FreeRADIUS — NAS autorizados (ver freeradius/clients.conf.example).
++# Cada router MikroTik real tiene su propia IP y secret; nunca compartir 0.0.0.0/0.
++RADIUS_RB4011_IP=192.168.88.1
++RADIUS_RB4011_SECRET=change-me-generate-with-openssl-rand-hex-32
++# RADIUS_CCR1016_IP=
++# RADIUS_CCR1016_SECRET=
+diff --git a/backend/apps/billing/tasks.py b/backend/apps/billing/tasks.py
+index 45b3b24..fff9a56 100644
+--- a/backend/apps/billing/tasks.py
++++ b/backend/apps/billing/tasks.py
+@@ -1,5 +1,6 @@
+ from celery import shared_task
+ from dateutil.relativedelta import relativedelta
++from django.conf import settings
+ from django.utils import timezone
+ 
+ from apps.clients.models import Client
+@@ -16,7 +17,7 @@ def generate_monthly_invoices():
+ 
+     created_count = 0
+     for client in clients_due:
+-        due_date = today + relativedelta(days=10)
++        due_date = today + relativedelta(days=settings.BILLING_GRACE_DAYS)
+         invoice, was_created = Invoice.objects.get_or_create(
+             client=client,
+             period_month=today.month,
+diff --git a/backend/apps/clients/signals.py b/backend/apps/clients/signals.py
+index 9e74f1b..414dd7d 100644
+--- a/backend/apps/clients/signals.py
++++ b/backend/apps/clients/signals.py
+@@ -2,10 +2,16 @@ from django.db.models.signals import post_save
+ from django.dispatch import receiver
+ 
+ from .models import Client
+-from apps.radius_sync.services import sync_client_to_radius
+ 
+ 
+ @receiver(post_save, sender=Client)
+ def sync_on_status_change(sender, instance, **kwargs):
++    """
++    Encola la sincronización a FreeRADIUS de forma asíncrona (Celery), con reintentos
++    automáticos ante fallos transitorios. No se llama sync_client_to_radius() aquí
++    directamente para no bloquear el request HTTP ni perder el cambio si RADIUS
++    está momentáneamente inalcanzable.
++    """
+     if hasattr(instance, 'credential'):
+-        sync_client_to_radius(instance)
++        from apps.radius_sync.tasks import sync_client_to_radius_task
++        sync_client_to_radius_task.delay(instance.id)
+diff --git a/backend/apps/radius_sync/admin.py b/backend/apps/radius_sync/admin.py
+index 30ed533..55b543a 100644
+--- a/backend/apps/radius_sync/admin.py
++++ b/backend/apps/radius_sync/admin.py
+@@ -1,12 +1,19 @@
+ from django.contrib import admin
+-from .models import RadiusSyncLog
++from .models import RadiusSyncLog, NasDevice
++
++
++@admin.register(NasDevice)
++class NasDeviceAdmin(admin.ModelAdmin):
++    list_display = ['name', 'ip_address', 'model', 'environment', 'active']
++    list_filter = ['environment', 'active']
++    search_fields = ['name', 'ip_address', 'model']
+ 
+ 
+ @admin.register(RadiusSyncLog)
+ class RadiusSyncLogAdmin(admin.ModelAdmin):
+-    list_display = ['client', 'action', 'success', 'synced_at']
++    list_display = ['client', 'action', 'success', 'attempt', 'synced_at']
+     list_filter = ['success', 'action']
+-    readonly_fields = ['client', 'action', 'synced_at', 'success', 'error_message']
++    readonly_fields = ['client', 'action', 'synced_at', 'success', 'error_message', 'attempt']
+ 
+     def has_add_permission(self, request):
+         return False
+diff --git a/backend/apps/radius_sync/migrations/0002_nasdevice_radiussynclog_attempt.py b/backend/apps/radius_sync/migrations/0002_nasdevice_radiussynclog_attempt.py
+new file mode 100644
+index 0000000..71df775
+--- /dev/null
++++ b/backend/apps/radius_sync/migrations/0002_nasdevice_radiussynclog_attempt.py
+@@ -0,0 +1,34 @@
++# Generated by Django 6.0.8 on 2026-08-29 06:47
++
++from django.db import migrations, models
++
++
++class Migration(migrations.Migration):
++
++    dependencies = [
++        ('radius_sync', '0001_initial'),
++    ]
++
++    operations = [
++        migrations.CreateModel(
++            name='NasDevice',
++            fields=[
++                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
++                ('name', models.CharField(help_text='Debe coincidir con el shortname en clients.conf', max_length=100)),
++                ('ip_address', models.GenericIPAddressField(help_text='IP real del NAS, o de su túnel VPN si aplica')),
++                ('model', models.CharField(blank=True, max_length=100)),
++                ('environment', models.CharField(choices=[('lab', 'Laboratorio'), ('production', 'Producción')], default='lab', max_length=20)),
++                ('active', models.BooleanField(default=True)),
++                ('notes', models.TextField(blank=True)),
++                ('created_at', models.DateTimeField(auto_now_add=True)),
++            ],
++            options={
++                'ordering': ['environment', 'name'],
++            },
++        ),
++        migrations.AddField(
++            model_name='radiussynclog',
++            name='attempt',
++            field=models.PositiveSmallIntegerField(default=1),
++        ),
++    ]
+diff --git a/backend/apps/radius_sync/models.py b/backend/apps/radius_sync/models.py
+index 38babcb..4e8a197 100644
+--- a/backend/apps/radius_sync/models.py
++++ b/backend/apps/radius_sync/models.py
+@@ -2,12 +2,40 @@ from django.db import models
+ from apps.clients.models import Client
+ 
+ 
++class NasDevice(models.Model):
++    """
++    Registro informativo de los routers MikroTik (NAS) declarados en freeradius/clients.conf.
++    Este modelo NO controla el acceso real — solo documenta en el panel qué NAS existen,
++    para que el shortname/ip coincida con lo configurado a mano en clients.conf. La fuente
++    de verdad de la autenticación sigue siendo el archivo de FreeRADIUS.
++    """
++    ENVIRONMENT_CHOICES = [
++        ('lab', 'Laboratorio'),
++        ('production', 'Producción'),
++    ]
++
++    name = models.CharField(max_length=100, help_text="Debe coincidir con el shortname en clients.conf")
++    ip_address = models.GenericIPAddressField(help_text="IP real del NAS, o de su túnel VPN si aplica")
++    model = models.CharField(max_length=100, blank=True)  # ej. "RB4011iGS+", "CCR1016-12G"
++    environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES, default='lab')
++    active = models.BooleanField(default=True)
++    notes = models.TextField(blank=True)
++    created_at = models.DateTimeField(auto_now_add=True)
++
++    class Meta:
++        ordering = ['environment', 'name']
++
++    def __str__(self):
++        return f"{self.name} ({self.ip_address})"
++
++
+ class RadiusSyncLog(models.Model):
+     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='radius_logs')
+     action = models.CharField(max_length=20)
+     synced_at = models.DateTimeField(auto_now_add=True)
+     success = models.BooleanField(default=False)
+     error_message = models.TextField(blank=True)
++    attempt = models.PositiveSmallIntegerField(default=1)
+ 
+     class Meta:
+         ordering = ['-synced_at']
+diff --git a/backend/apps/radius_sync/services.py b/backend/apps/radius_sync/services.py
+index f51cad4..97e8d8e 100644
+--- a/backend/apps/radius_sync/services.py
++++ b/backend/apps/radius_sync/services.py
+@@ -2,8 +2,12 @@ from django.db import connections
+ from .models import RadiusSyncLog
+ 
+ 
+-def sync_client_to_radius(client):
+-    """Idempotente: borra y reinserta el estado del cliente en las tablas de FreeRADIUS."""
++def sync_client_to_radius(client, attempt=1):
++    """Idempotente: borra y reinserta el estado del cliente en las tablas de FreeRADIUS.
++
++    Se usa tanto para el sync síncrono (botón "Forzar sync" en el admin) como desde la
++    tarea Celery con reintentos (ver tasks.sync_client_to_radius_task).
++    """
+     if not hasattr(client, 'credential'):
+         return
+ 
+@@ -41,9 +45,12 @@ def sync_client_to_radius(client):
+                 )
+             # cancelled/pending: no se inserta nada -> rechazo automático
+ 
+-        RadiusSyncLog.objects.create(client=client, action=f'sync_{client.status}', success=True)
++        RadiusSyncLog.objects.create(
++            client=client, action=f'sync_{client.status}', success=True, attempt=attempt
++        )
+     except Exception as exc:  # noqa: BLE001
+         RadiusSyncLog.objects.create(
+-            client=client, action=f'sync_{client.status}', success=False, error_message=str(exc)
++            client=client, action=f'sync_{client.status}', success=False,
++            error_message=str(exc), attempt=attempt,
+         )
+         raise
+diff --git a/backend/apps/radius_sync/tasks.py b/backend/apps/radius_sync/tasks.py
+new file mode 100644
+index 0000000..98108b0
+--- /dev/null
++++ b/backend/apps/radius_sync/tasks.py
+@@ -0,0 +1,64 @@
++from celery import shared_task
++from celery.utils.log import get_task_logger
++
++from .services import sync_client_to_radius
++from .models import RadiusSyncLog
++
++logger = get_task_logger(__name__)
++
++
++@shared_task(bind=True, max_retries=5, default_retry_delay=30)
++def sync_client_to_radius_task(self, client_id):
++    """
++    Versión asíncrona y con reintentos de sync_client_to_radius().
++    Se encola desde el signal post_save de Client — así un problema transitorio
++    (ej. Postgres de radius momentáneamente inalcanzable) no deja al cliente
++    en un estado inconsistente (pagó pero sigue cortado, o viceversa).
++
++    Reintenta hasta 5 veces con backoff (30s, 60s, 120s...).
++    """
++    from apps.clients.models import Client
++
++    try:
++        client = Client.objects.select_related('plan', 'credential').get(pk=client_id)
++    except Client.DoesNotExist:
++        logger.warning("sync_client_to_radius_task: cliente %s ya no existe, se omite", client_id)
++        return
++
++    try:
++        sync_client_to_radius(client, attempt=self.request.retries + 1)
++    except Exception as exc:  # noqa: BLE001
++        logger.error(
++            "Fallo al sincronizar cliente %s con RADIUS (intento %s/%s): %s",
++            client_id, self.request.retries + 1, self.max_retries, exc,
++        )
++        raise self.retry(exc=exc)
++
++
++@shared_task
++def retry_failed_radius_syncs():
++    """
++    Red de seguridad: corre periódicamente y reintenta clientes cuyo ÚLTIMO
++    RadiusSyncLog haya sido un error. Cubre el caso donde la tarea con reintentos
++    ya agotó sus intentos, o donde el sync nunca se disparó (ej. tras un deploy).
++    """
++    from apps.clients.models import Client
++
++    # Últimos logs por cliente: si el más reciente fue un error, reintentamos.
++    stale_client_ids = (
++        RadiusSyncLog.objects.filter(success=False)
++        .order_by('client_id', '-synced_at')
++        .distinct('client_id')
++        .values_list('client_id', flat=True)
++    )
++
++    retried = 0
++    for client_id in stale_client_ids:
++        latest_log = (
++            RadiusSyncLog.objects.filter(client_id=client_id).order_by('-synced_at').first()
++        )
++        if latest_log and not latest_log.success:
++            sync_client_to_radius_task.delay(client_id)
++            retried += 1
++
++    return f"{retried} clientes reencolados para reintento de sync RADIUS"
+diff --git a/backend/config/settings.py b/backend/config/settings.py
+index d4a2827..7820586 100644
+--- a/backend/config/settings.py
++++ b/backend/config/settings.py
+@@ -175,12 +175,20 @@ CELERY_BEAT_SCHEDULE = {
+         'task': 'apps.billing.tasks.send_invoice_reminders',
+         'schedule': crontab(hour=8, minute=0),
+     },
++    'retry-failed-radius-syncs': {
++        'task': 'apps.radius_sync.tasks.retry_failed_radius_syncs',
++        'schedule': crontab(minute='*/15'),
++    },
+ }
+ 
+ # Mercado Pago
+ MP_ACCESS_TOKEN = os.getenv('MP_ACCESS_TOKEN', '')
+ MP_WEBHOOK_SECRET = os.getenv('MP_WEBHOOK_SECRET', '')
+ 
++# Facturación: días de plazo entre la generación de la boleta y su vencimiento.
++# Al día siguiente del vencimiento, suspend_overdue_clients() corta el servicio.
++BILLING_GRACE_DAYS = int(os.getenv('BILLING_GRACE_DAYS', '10'))
++
+ # Advertencia en stderr si falta MP_WEBHOOK_SECRET en producción
+ import sys  # noqa: E402
+ if DJANGO_ENV == 'production' and not MP_WEBHOOK_SECRET:
+diff --git a/freeradius/clients.conf.example b/freeradius/clients.conf.example
+index c811f57..d5b2f7d 100644
+--- a/freeradius/clients.conf.example
++++ b/freeradius/clients.conf.example
+@@ -1,6 +1,45 @@
+-client railway_proxy {
+-    ipaddr     = 0.0.0.0/0
+-    secret     = $ENV{RADIUS_CLIENT_SECRET}
+-    shortname  = skwisp-mikrotik
++# clients.conf — declaración de NAS (routers MikroTik) autorizados a hablar con FreeRADIUS.
++#
++# IMPORTANTE — seguridad:
++# Cada bloque "client" acepta peticiones RADIUS (UDP 1812/1813) desde una IP concreta usando
++# un shared secret propio. NUNCA declares un client con ipaddr = 0.0.0.0/0 en producción:
++# eso permite que cualquier IP en internet intente autenticarse contra tu FreeRADIUS con solo
++# adivinar el secret (fuerza bruta por UDP contra tus credenciales PPPoE).
++#
++# Si tu FreeRADIUS corre detrás de un proxy/PaaS (Railway) que no preserva la IP de origen real
++# del router, la alternativa correcta NO es abrir 0.0.0.0/0: es conectar el MikroTik a FreeRADIUS
++# por una VPN/IPsec site-to-site, de forma que la IP que ve FreeRADIUS sea siempre la IP interna
++# fija del túnel. Ver MANUAL_DESPLIEGUE_RAILWAY.md, sección "Seguridad RADIUS".
++#
++# Cada NAS real tiene su propio bloque, su propia IP y su propio secret — así puedes revocar
++# el acceso de un router sin afectar a los demás, y sabes exactamente cuál generó cada evento
++# en los logs de FreeRADIUS.
++
++# --- Laboratorio: RB4011 (pruebas antes de tocar producción) ---
++client rb4011_lab {
++    ipaddr     = $ENV{RADIUS_RB4011_IP}
++    secret     = $ENV{RADIUS_RB4011_SECRET}
++    shortname  = rb4011-lab
+     nastype    = mikrotik
+ }
++
++# --- Producción: CCR1016 (FibraPuconCore core router) ---
++# Descomentar y completar las variables de entorno cuando se migre producción.
++# client ccr1016_core {
++#     ipaddr     = $ENV{RADIUS_CCR1016_IP}
++#     secret     = $ENV{RADIUS_CCR1016_SECRET}
++#     shortname  = ccr1016-core
++#     nastype    = mikrotik
++# }
++
++# --- Solo para desarrollo local sin IP pública conocida (docker-compose en tu propia máquina) ---
++# Si estás probando 100% en localhost y conoces la IP LAN real del RB4011, NO uses este bloque:
++# usa el de arriba con esa IP. Este bloque queda documentado únicamente como último recurso,
++# nunca para producción ni para un despliegue expuesto a internet.
++# client dev_open {
++#     ipaddr     = 0.0.0.0/0
++#     secret     = $ENV{RADIUS_DEV_SECRET}
++#     shortname  = dev-open
++#     nastype    = other
++#     require_message_authenticator = yes
++# }
+-- 
+2.43.0
+
+
+From 35012c2f85055be7d531ceb08bfbba4607b59148 Mon Sep 17 00:00:00 2001
+From: Otto Gudens <otto@skwisp.local>
+Date: Sat, 29 Aug 2026 06:52:45 +0000
+Subject: [PATCH 2/2] feat(vpn): integrar hub WireGuard para conectar MikroTik
+ y FreeRADIUS en la misma LAN virtual
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Nuevo servicio 'wireguard' en docker-compose.yml (wg-easy), FreeRADIUS comparte su
+  network namespace para preservar la IP interna real del peer
+- clients.conf.example ahora documenta IPs de túnel en vez de IPs públicas
+- NasDevice: nuevos campos connection_type y wireguard_public_key
+- WIREGUARD_SETUP.md: guía completa (requiere RouterOS v7+, no compatible con RouterOS 6.49)
+- Resuelve la limitación de Railway documentada en MANUAL_DESPLIEGUE_RAILWAY.md §6.5
+---
+ MANUAL_DESPLIEGUE_RAILWAY.md                  |   2 +-
+ README.md                                     |   1 +
+ WIREGUARD_SETUP.md                            | 114 ++++++++++++++++++
+ backend/.env.example                          |   9 +-
+ backend/apps/radius_sync/admin.py             |   4 +-
+ ...0003_nasdevice_connection_type_and_more.py |  28 +++++
+ backend/apps/radius_sync/models.py            |  14 ++-
+ docker-compose.yml                            |  44 ++++++-
+ freeradius/clients.conf.example               |  46 ++++---
+ 9 files changed, 225 insertions(+), 37 deletions(-)
+ create mode 100644 WIREGUARD_SETUP.md
+ create mode 100644 backend/apps/radius_sync/migrations/0003_nasdevice_connection_type_and_more.py
+
+diff --git a/MANUAL_DESPLIEGUE_RAILWAY.md b/MANUAL_DESPLIEGUE_RAILWAY.md
+index c226e37..62f0014 100644
+--- a/MANUAL_DESPLIEGUE_RAILWAY.md
++++ b/MANUAL_DESPLIEGUE_RAILWAY.md
+@@ -156,7 +156,7 @@ Con esa limitación, la única defensa real en este escenario es:
+ 
+ 1. **Un secret distinto y largo por cada NAS** (ya configurado arriba) — así, si un secret se filtra, solo compromete a ese router, no a todos.
+ 2. **Rotar los secrets periódicamente**, especialmente después de cualquier sospecha de exposición.
+-3. **Para producción (CCR1016), evaluar seriamente NO usar el proxy UDP de Railway.** La alternativa más segura es levantar FreeRADIUS en una VPS propia (o en el mismo segmento de red del ISP) conectada al CCR1016 por LAN/VPN, donde la restricción por IP sí es efectiva. Railway + proxy UDP es aceptable para el **laboratorio** (RB4011, tráfico de pruebas, sin clientes reales en riesgo), pero no es la arquitectura recomendada para el core de producción con ~300 clientes dependiendo de ella.
++3. **Para producción (CCR1016), evaluar seriamente NO usar el proxy UDP de Railway.** La solución implementada es un hub WireGuard propio (fuera de Railway) que pone a los MikroTik y a FreeRADIUS en la misma LAN virtual — ver **[`WIREGUARD_SETUP.md`](./WIREGUARD_SETUP.md)** para la guía completa paso a paso. Railway + proxy UDP sigue siendo aceptable para experimentar en el **laboratorio** sin WireGuard, pero para el core de producción con ~300 clientes dependiendo de él, WireGuard es la arquitectura recomendada.
+ 
+ ---
+ 
+diff --git a/README.md b/README.md
+index 650c7ad..b9ef1c5 100644
+--- a/README.md
++++ b/README.md
+@@ -107,6 +107,7 @@ npm run dev
+ - [x] Endpoint de healthcheck (`/api/dashboard/health/`) para Railway/monitoreo
+ - [x] docker-compose completo (Postgres + Redis de Django, más laboratorio FreeRADIUS)
+ - [x] Migraciones iniciales generadas
++- [x] Túnel WireGuard (MikroTik ↔ FreeRADIUS en la misma LAN virtual) — ver WIREGUARD_SETUP.md
+ - [ ] Pruebas en RB4011 (laboratorio) — en curso
+ - [ ] Migración a producción (CCR1016)
+ 
+diff --git a/WIREGUARD_SETUP.md b/WIREGUARD_SETUP.md
+new file mode 100644
+index 0000000..8d4c446
+--- /dev/null
++++ b/WIREGUARD_SETUP.md
+@@ -0,0 +1,114 @@
++# WireGuard — MikroTik y FreeRADIUS en la misma LAN virtual
++
++Esta guía conecta los routers MikroTik (RB4011 de laboratorio, CCR1016 de producción) a
++FreeRADIUS mediante un túnel WireGuard, de forma que todos queden en el mismo segmento de
++red virtual (`10.10.10.0/24`) sin importar dónde esté físicamente cada uno.
++
++## Por qué
++
++- Resuelve la limitación documentada en `MANUAL_DESPLIEGUE_RAILWAY.md` §6.5: bajo el proxy
++  UDP de Railway, FreeRADIUS nunca ve la IP pública real del router, así que restringir por
++  IP en `clients.conf` no servía de nada.
++- Con WireGuard, la IP que ve FreeRADIUS es siempre la IP interna fija del túnel
++  (ej. `10.10.10.2`), sin importar si el router tiene IP pública dinámica, está detrás de
++  CGNAT, o cambia de proveedor de internet.
++- El tráfico RADIUS (UDP 1812/1813) viaja cifrado dentro del túnel — nadie en la ruta puede
++  ver ni inyectar tráfico de autenticación PPPoE.
++
++## Requisitos
++
++- **RouterOS v7.0 o superior** en cada MikroTik. WireGuard es nativo desde RouterOS 7;
++  **no existe en RouterOS 6.x**. Según lo registrado, `RB_Gudens` (RB4011) corre RouterOS
++  6.49 — hay que actualizarlo antes de seguir esta guía.
++- Un servidor/VPS propio para el hub WireGuard (el servicio `wireguard` del
++  `docker-compose.yml`). **No se puede desplegar en Railway** — sus contenedores no tienen
++  acceso a `/dev/net/tun` ni a `CAP_NET_ADMIN`, requisitos indispensables para crear una
++  interfaz WireGuard. Una VPS pequeña (1 vCPU/1GB, cualquier proveedor) alcanza de sobra.
++
++## 1. Levantar el hub WireGuard
++
++En tu VPS (no en Railway):
++
++```bash
++cd skwisp
++cp .env.example .env   # completar WIREGUARD_PUBLIC_HOST y WIREGUARD_UI_PASSWORD_HASH
++
++# Generar el hash de la contraseña de la UI de administración:
++docker run --rm ghcr.io/wg-easy/wg-easy:14 wgpw 'tu-password-aqui'
++# Copiar el hash resultante a WIREGUARD_UI_PASSWORD_HASH en .env
++
++docker compose up -d wireguard
++```
++
++La UI de administración queda en `http://127.0.0.1:51821` (solo local — si necesitas
++acceso remoto, usa un túnel SSH: `ssh -L 51821:localhost:51821 usuario@tu-vps`).
++
++## 2. Crear un peer por cada MikroTik
++
++Desde la UI de wg-easy:
++
++1. **+ New Client** → nombre `rb4011-lab`
++2. wg-easy asigna automáticamente una IP interna (ej. `10.10.10.2`) y genera el par de
++   claves — descarga la configuración (botón de descarga o código QR).
++3. Repite para `ccr1016-core` cuando llegue el momento de producción.
++
++Anota la IP asignada — la necesitarás para `RADIUS_RB4011_IP` en tu `.env` y para el
++registro `NasDevice` en el panel admin.
++
++## 3. Configurar WireGuard en el MikroTik (RouterOS 7+)
++
++Con los datos del archivo de configuración descargado desde wg-easy (`PrivateKey`,
++`PublicKey` del servidor, `Endpoint`, `AllowedIPs`):
++
++```
++/interface wireguard add name=wg-skwisp listen-port=51820
++
++/interface wireguard peers add \
++    interface=wg-skwisp \
++    public-key="<PublicKey del servidor, mostrado en wg-easy>" \
++    endpoint-address=<WIREGUARD_PUBLIC_HOST> \
++    endpoint-port=51820 \
++    allowed-address=10.10.10.0/24 \
++    persistent-keepalive=25s
++
++/ip address add address=10.10.10.2/24 interface=wg-skwisp
++
++# Configurar la clave privada del propio router (la que generó wg-easy para este peer):
++/interface wireguard set wg-skwisp private-key="<PrivateKey de este peer>"
++```
++
++`persistent-keepalive=25s` es importante: sin esto, si el router está detrás de NAT/CGNAT
++(típico en conexiones residenciales o algunos enlaces de ISP), el túnel puede "dormirse" y
++FreeRADIUS dejaría de recibir tráfico hasta que el router reintente activamente.
++
++## 4. Validar el túnel
++
++Desde el MikroTik:
++```
++/ping 10.10.10.1 interface=wg-skwisp
++```
++Si responde, el túnel está arriba y FreeRADIUS (que corre en el mismo namespace de red que
++el contenedor `wireguard`, IP `10.10.10.1`) es alcanzable.
++
++## 5. Apuntar el PPPoE server del MikroTik a FreeRADIUS por el túnel
++
++```
++/radius add service=ppp address=10.10.10.1 secret=<mismo secret que RADIUS_RB4011_SECRET> timeout=3s
++/radius incoming set accept=yes port=3799
++/ppp aaa set use-radius=yes accounting=yes interim-update=5m
++```
++
++## 6. Completar en Django
++
++1. `.env`: `RADIUS_RB4011_IP=10.10.10.2` (la IP que asignó wg-easy a este peer)
++2. `freeradius/clients.conf`: ya usa `$ENV{RADIUS_RB4011_IP}`, no requiere cambios
++3. En `/admin/` → RADIUS/Sync → Nas Devices: crea el registro con `ip_address=10.10.10.2`,
++   `connection_type=wireguard`, `environment=lab` — puramente informativo, para tener
++   trazabilidad de qué NAS existen sin tener que abrir `clients.conf` cada vez.
++
++## Migración a producción (CCR1016)
++
++Repite los pasos 2–6 con el CCR1016 (recordando actualizar su RouterOS a v7+ primero si aún
++no lo está). Al tener ambos routers en la misma LAN virtual, puedes correr pruebas desde el
++RB4011 sin ningún riesgo de tocar el tráfico de producción — son peers independientes del
++mismo hub, con secrets RADIUS distintos.
+diff --git a/backend/.env.example b/backend/.env.example
+index 1c29975..50e2caf 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -21,8 +21,13 @@ MP_WEBHOOK_SECRET=your-mp-webhook-secret
+ BILLING_GRACE_DAYS=10
+ 
+ # FreeRADIUS — NAS autorizados (ver freeradius/clients.conf.example).
+-# Cada router MikroTik real tiene su propia IP y secret; nunca compartir 0.0.0.0/0.
+-RADIUS_RB4011_IP=192.168.88.1
++# Con WireGuard, estas IPs son las internas del túnel (10.10.10.x), no las públicas.
++RADIUS_RB4011_IP=10.10.10.2
+ RADIUS_RB4011_SECRET=change-me-generate-with-openssl-rand-hex-32
+ # RADIUS_CCR1016_IP=
+ # RADIUS_CCR1016_SECRET=
++
++# Hub WireGuard (ver WIREGUARD_SETUP.md) — solo aplica si despliegas el servicio
++# "wireguard" del docker-compose.yml en tu VPS/servidor propio (no en Railway).
++WIREGUARD_PUBLIC_HOST=vpn.fibrapuconcore.cl
++WIREGUARD_UI_PASSWORD_HASH=generar-con-comando-de-wg-easy
+diff --git a/backend/apps/radius_sync/admin.py b/backend/apps/radius_sync/admin.py
+index 55b543a..128be23 100644
+--- a/backend/apps/radius_sync/admin.py
++++ b/backend/apps/radius_sync/admin.py
+@@ -4,8 +4,8 @@ from .models import RadiusSyncLog, NasDevice
+ 
+ @admin.register(NasDevice)
+ class NasDeviceAdmin(admin.ModelAdmin):
+-    list_display = ['name', 'ip_address', 'model', 'environment', 'active']
+-    list_filter = ['environment', 'active']
++    list_display = ['name', 'ip_address', 'connection_type', 'model', 'environment', 'active']
++    list_filter = ['environment', 'active', 'connection_type']
+     search_fields = ['name', 'ip_address', 'model']
+ 
+ 
+diff --git a/backend/apps/radius_sync/migrations/0003_nasdevice_connection_type_and_more.py b/backend/apps/radius_sync/migrations/0003_nasdevice_connection_type_and_more.py
+new file mode 100644
+index 0000000..ba75e24
+--- /dev/null
++++ b/backend/apps/radius_sync/migrations/0003_nasdevice_connection_type_and_more.py
+@@ -0,0 +1,28 @@
++# Generated by Django 6.0.8 on 2026-08-29 06:52
++
++from django.db import migrations, models
++
++
++class Migration(migrations.Migration):
++
++    dependencies = [
++        ('radius_sync', '0002_nasdevice_radiussynclog_attempt'),
++    ]
++
++    operations = [
++        migrations.AddField(
++            model_name='nasdevice',
++            name='connection_type',
++            field=models.CharField(choices=[('direct', 'IP pública directa'), ('wireguard', 'Túnel WireGuard')], default='wireguard', max_length=20),
++        ),
++        migrations.AddField(
++            model_name='nasdevice',
++            name='wireguard_public_key',
++            field=models.CharField(blank=True, help_text='Public key del peer en wg-easy — solo informativo, la config real vive en el hub WireGuard.', max_length=64),
++        ),
++        migrations.AlterField(
++            model_name='nasdevice',
++            name='ip_address',
++            field=models.GenericIPAddressField(help_text='IP que FreeRADIUS realmente ve en clients.conf: la del túnel WireGuard si connection_type=wireguard, o la pública si es conexión directa.'),
++        ),
++    ]
+diff --git a/backend/apps/radius_sync/models.py b/backend/apps/radius_sync/models.py
+index 4e8a197..1d27cb9 100644
+--- a/backend/apps/radius_sync/models.py
++++ b/backend/apps/radius_sync/models.py
+@@ -13,9 +13,21 @@ class NasDevice(models.Model):
+         ('lab', 'Laboratorio'),
+         ('production', 'Producción'),
+     ]
++    CONNECTION_CHOICES = [
++        ('direct', 'IP pública directa'),
++        ('wireguard', 'Túnel WireGuard'),
++    ]
+ 
+     name = models.CharField(max_length=100, help_text="Debe coincidir con el shortname en clients.conf")
+-    ip_address = models.GenericIPAddressField(help_text="IP real del NAS, o de su túnel VPN si aplica")
++    ip_address = models.GenericIPAddressField(
++        help_text="IP que FreeRADIUS realmente ve en clients.conf: la del túnel WireGuard "
++                   "si connection_type=wireguard, o la pública si es conexión directa."
++    )
++    connection_type = models.CharField(max_length=20, choices=CONNECTION_CHOICES, default='wireguard')
++    wireguard_public_key = models.CharField(
++        max_length=64, blank=True,
++        help_text="Public key del peer en wg-easy — solo informativo, la config real vive en el hub WireGuard."
++    )
+     model = models.CharField(max_length=100, blank=True)  # ej. "RB4011iGS+", "CCR1016-12G"
+     environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES, default='lab')
+     active = models.BooleanField(default=True)
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 3ca2992..c04b929 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -26,7 +26,6 @@ services:
+     networks:
+       - skwisp_net
+ 
+-  # --- Laboratorio FreeRADIUS (para pruebas contra el RB4011 antes de migrar el CCR1016) ---
+   radius-db:
+     image: postgres:16
+     container_name: radius-postgres
+@@ -43,25 +42,57 @@ services:
+     networks:
+       - skwisp_net
+ 
++  # --- Hub WireGuard: los MikroTik (RB4011, CCR1016) se conectan aquí como peers, quedando
++  # en la misma LAN virtual que FreeRADIUS. SOLO para VPS/servidor propio con soporte de
++  # kernel WireGuard — NO se puede desplegar en Railway (sin acceso a /dev/net/tun ni
++  # CAP_NET_ADMIN en sus contenedores). Ver WIREGUARD_SETUP.md para la guía completa.
++  #
++  # UI web de administración de peers en http://<host>:51821 (protegida con WG_PASSWORD).
++  wireguard:
++    image: ghcr.io/wg-easy/wg-easy:14
++    container_name: skwisp-wireguard
++    restart: unless-stopped
++    environment:
++      - WG_HOST=${WIREGUARD_PUBLIC_HOST}
++      - PASSWORD_HASH=${WIREGUARD_UI_PASSWORD_HASH}
++      - WG_DEFAULT_ADDRESS=10.10.10.x
++      - WG_PORT=51820
++    volumes:
++      - wireguard_data:/etc/wireguard
++    ports:
++      - "51820:51820/udp"   # túnel WireGuard — deben apuntar aquí los MikroTik
++      - "127.0.0.1:51821:51821"  # UI de administración, solo accesible localmente (usar SSH tunnel/reverse proxy si se necesita remoto)
++    cap_add:
++      - NET_ADMIN
++      - SYS_MODULE
++    sysctls:
++      - net.ipv4.ip_forward=1
++      - net.ipv4.conf.all.src_valid_mark=1
++    networks:
++      - skwisp_net
++
++  # FreeRADIUS comparte el namespace de red del contenedor wireguard (network_mode:
++  # service:wireguard) para que el tráfico que llega por el túnel conserve la IP interna
++  # real del peer (10.10.10.x) al llegar al socket de FreeRADIUS — así clients.conf puede
++  # restringir por esa IP de forma efectiva.
+   freeradius:
+     image: freeradius/freeradius-server:3.2.5
+     container_name: freeradius
+     restart: unless-stopped
+     depends_on:
+       - radius-db
++      - wireguard
++    network_mode: "service:wireguard"
+     environment:
+       POSTGRESQL_SERVER: radius-db
+       POSTGRESQL_LOGIN: radius
+       POSTGRESQL_PASSWORD: ${RADIUS_DB_PASSWORD}
+       POSTGRESQL_DATABASE: radius
++      RADIUS_RB4011_IP: ${RADIUS_RB4011_IP}
++      RADIUS_RB4011_SECRET: ${RADIUS_RB4011_SECRET}
+     volumes:
+       - ./freeradius/clients.conf:/etc/raddb/clients.conf:ro
+       - ./freeradius/mods-enabled/sql:/etc/raddb/mods-enabled/sql:ro
+-    ports:
+-      - "1812:1812/udp"
+-      - "1813:1813/udp"
+-    networks:
+-      - skwisp_net
+ 
+ networks:
+   skwisp_net:
+@@ -70,3 +101,4 @@ networks:
+ volumes:
+   skwisp_db_data:
+   radius_db_data:
++  wireguard_data:
+diff --git a/freeradius/clients.conf.example b/freeradius/clients.conf.example
+index d5b2f7d..bd12c30 100644
+--- a/freeradius/clients.conf.example
++++ b/freeradius/clients.conf.example
+@@ -1,21 +1,22 @@
+ # clients.conf — declaración de NAS (routers MikroTik) autorizados a hablar con FreeRADIUS.
+ #
+-# IMPORTANTE — seguridad:
+-# Cada bloque "client" acepta peticiones RADIUS (UDP 1812/1813) desde una IP concreta usando
+-# un shared secret propio. NUNCA declares un client con ipaddr = 0.0.0.0/0 en producción:
+-# eso permite que cualquier IP en internet intente autenticarse contra tu FreeRADIUS con solo
+-# adivinar el secret (fuerza bruta por UDP contra tus credenciales PPPoE).
+-#
+-# Si tu FreeRADIUS corre detrás de un proxy/PaaS (Railway) que no preserva la IP de origen real
+-# del router, la alternativa correcta NO es abrir 0.0.0.0/0: es conectar el MikroTik a FreeRADIUS
+-# por una VPN/IPsec site-to-site, de forma que la IP que ve FreeRADIUS sea siempre la IP interna
+-# fija del túnel. Ver MANUAL_DESPLIEGUE_RAILWAY.md, sección "Seguridad RADIUS".
++# ARQUITECTURA RECOMENDADA: WireGuard
++# ------------------------------------
++# Los MikroTik y FreeRADIUS conviven en la misma "LAN virtual" vía un túnel WireGuard
++# (ver WIREGUARD_SETUP.md). Esto resuelve dos problemas a la vez:
++#   1. La IP que ve FreeRADIUS es siempre la IP interna fija del túnel (ej. 10.10.10.x),
++#      nunca cambia aunque el router tenga IP pública dinámica.
++#   2. Bajo el proxy UDP de Railway, FreeRADIUS ve la IP del proxy, no la del router — con
++#      WireGuard este problema desaparece porque FreeRADIUS ya no depende de esa IP pública:
++#      el tráfico real llega encapsulado desde el túnel con la IP interna del peer.
+ #
+-# Cada NAS real tiene su propio bloque, su propia IP y su propio secret — así puedes revocar
+-# el acceso de un router sin afectar a los demás, y sabes exactamente cuál generó cada evento
+-# en los logs de FreeRADIUS.
++# IMPORTANTE — seguridad:
++# NUNCA declares un client con ipaddr = 0.0.0.0/0. Cada NAS real tiene su propio bloque, su
++# propia IP (interna, del túnel) y su propio secret — así puedes revocar el acceso de un
++# router sin afectar a los demás.
+ 
+ # --- Laboratorio: RB4011 (pruebas antes de tocar producción) ---
++# RADIUS_RB4011_IP = IP interna asignada al RB4011 dentro del túnel WireGuard (ej. 10.10.10.2)
+ client rb4011_lab {
+     ipaddr     = $ENV{RADIUS_RB4011_IP}
+     secret     = $ENV{RADIUS_RB4011_SECRET}
+@@ -24,7 +25,8 @@ client rb4011_lab {
+ }
+ 
+ # --- Producción: CCR1016 (FibraPuconCore core router) ---
+-# Descomentar y completar las variables de entorno cuando se migre producción.
++# Descomentar y completar cuando se migre producción.
++# RouterOS del CCR1016 debe estar en v7+ para soportar WireGuard nativo (ver WIREGUARD_SETUP.md).
+ # client ccr1016_core {
+ #     ipaddr     = $ENV{RADIUS_CCR1016_IP}
+ #     secret     = $ENV{RADIUS_CCR1016_SECRET}
+@@ -32,14 +34,8 @@ client rb4011_lab {
+ #     nastype    = mikrotik
+ # }
+ 
+-# --- Solo para desarrollo local sin IP pública conocida (docker-compose en tu propia máquina) ---
+-# Si estás probando 100% en localhost y conoces la IP LAN real del RB4011, NO uses este bloque:
+-# usa el de arriba con esa IP. Este bloque queda documentado únicamente como último recurso,
+-# nunca para producción ni para un despliegue expuesto a internet.
+-# client dev_open {
+-#     ipaddr     = 0.0.0.0/0
+-#     secret     = $ENV{RADIUS_DEV_SECRET}
+-#     shortname  = dev-open
+-#     nastype    = other
+-#     require_message_authenticator = yes
+-# }
++# --- Alternativa sin WireGuard (NO recomendada) ---
++# Si por algún motivo el NAS conecta con IP pública directa en vez de por el túnel, declara
++# esa IP pública tal cual (nunca 0.0.0.0/0). Pierdes la protección de que la IP sea siempre
++# la misma/interna, y bajo Railway con proxy UDP esta opción ni siquiera es viable (ver
++# MANUAL_DESPLIEGUE_RAILWAY.md §6.5).
+-- 
+2.43.0
+
