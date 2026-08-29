@@ -68,24 +68,20 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # --- Bases de datos ---
 # 'default': Django (clientes, facturación, tickets, inventario)
-# 'radius':  FreeRADIUS (radcheck/radreply/radusergroup/radacct) — solo lectura/escritura vía services.py
+# 'radius':  FreeRADIUS — solo lectura/escritura vía services.py
+import dj_database_url  # noqa: E402
+
+_default_db_url = os.getenv('DATABASE_URL') or \
+    f"postgresql://{os.getenv('DB_USER','skwisp')}:{os.getenv('DB_PASSWORD','skwisp')}" \
+    f"@{os.getenv('DB_HOST','localhost')}:{os.getenv('DB_PORT','5432')}/{os.getenv('DB_NAME','skwisp')}"
+
+_radius_db_url = os.getenv('RADIUS_DATABASE_URL') or \
+    f"postgresql://{os.getenv('RADIUS_DB_USER','radius')}:{os.getenv('RADIUS_DB_PASSWORD','radius')}" \
+    f"@{os.getenv('RADIUS_DB_HOST','localhost')}:{os.getenv('RADIUS_DB_PORT','5433')}/{os.getenv('RADIUS_DB_NAME','radius')}"
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'skwisp'),
-        'USER': os.getenv('DB_USER', 'skwisp'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'skwisp'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
-    },
-    'radius': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('RADIUS_DB_NAME', 'radius'),
-        'USER': os.getenv('RADIUS_DB_USER', 'radius'),
-        'PASSWORD': os.getenv('RADIUS_DB_PASSWORD', 'radius'),
-        'HOST': os.getenv('RADIUS_DB_HOST', 'localhost'),
-        'PORT': os.getenv('RADIUS_DB_PORT', '5433'),
-    },
+    'default': dj_database_url.parse(_default_db_url, conn_max_age=600),
+    'radius': dj_database_url.parse(_radius_db_url, conn_max_age=600),
 }
 
 # Django nunca gestiona migraciones sobre la DB de radius (schema propio de FreeRADIUS)
