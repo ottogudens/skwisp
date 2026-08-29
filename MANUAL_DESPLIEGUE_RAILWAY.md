@@ -133,6 +133,7 @@ Para que FreeRADIUS hable con tu base de datos de Railway, agrega estas variable
 | `POSTGRESQL_LOGIN` | `postgres` (o tu usuario) | Usuario generado para Postgres. |
 | `POSTGRESQL_PASSWORD` | `${{Postgres-Radius.POSTGRES_PASSWORD}}` | Contraseña generada por Railway Postgres. |
 | `POSTGRESQL_DATABASE` | `railway` (o tu db name) | Nombre de la base de datos a utilizar. |
+| `RADIUS_CLIENT_SECRET` | *(Generar un valor seguro)* | Secreto para conectar los Mikrotik. Leído desde `clients.conf`. |
 
 ### 6.4. Exposición de Puertos UDP (Conexión con Mikrotik)
 Por defecto, Railway solo enruta tráfico HTTP/HTTPS. Para que tus routers Mikrotik alcancen a este Radius, debes habilitar el proxy UDP:
