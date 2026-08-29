@@ -267,11 +267,13 @@ class PortalTicketDetailView(generics.RetrieveAPIView):
 import secrets  # noqa: E402
 from django.db import models as db_models  # noqa: E402
 
+def generate_portal_token():
+    return secrets.token_urlsafe(48)
 
 class PortalToken(db_models.Model):
     """Token de autenticación para usuarios del portal de clientes."""
 
-    key = db_models.CharField(max_length=64, unique=True, default=lambda: secrets.token_urlsafe(48))
+    key = db_models.CharField(max_length=64, unique=True, default=generate_portal_token)
     user = db_models.OneToOneField(ClientUser, on_delete=db_models.CASCADE, related_name='auth_token')
     created_at = db_models.DateTimeField(auto_now_add=True)
 
